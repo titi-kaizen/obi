@@ -1,0 +1,95 @@
+version: '3.9'
+
+services:
+  # ── API ───────────────────────────────────────────────────
+  api:
+    image: ghcr.io/${GITHUB_REPOSITORY}/api:${IMAGE_TAG:-latest}
+    container_name: ogasci-api
+    env_file: .env
+    ports:
+      - '3001:3001'
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3001/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # ── Scraper Worker ────────────────────────────────────────
+  scraper-worker:
+    image: ghcr.io/${GITHUB_REPOSITORY}/scraper:${IMAGE_TAG:-latest}
+    container_name: ogasci-scraper
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G     # Playwright needs more memory
+          cpus: '1.0'
+
+  # ── AI Pipeline Worker ────────────────────────────────────
+  ai-worker:
+    image: ghcr.io/${GITHUB_REPOSITORY}/ai-pipeline:${IMAGE_TAG:-latest}
+    container_name: ogasci-ai
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # ── Signal Detector ───────────────────────────────────────
+  signal-worker:
+    image: ghcr.io/${GITHUB_REPOSITORY}/signal-detector:${IMAGE_TAG:-latest}
+    container_name: ogasci-signals
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Redis ─────────────────────────────────────────────────
+  redis:
+    image: redis:7.4-alpine
+    container_name: ogasci-redis-prod
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD} --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Nginx reverse proxy ───────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: ogasci-nginx
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  redis_data:
