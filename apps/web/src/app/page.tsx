@@ -1,0 +1,265 @@
+import { createServerClient } from '@/lib/supabase'
+import { formatDistanceToNow } from 'date-fns'
+import { es } from 'date-fns/locale'
+import { Newspaper, Zap, Database, AlertTriangle, Clock } from 'lucide-react'
+import RefreshButton from '@/components/refresh-button'
+import ProcessButton from '@/components/process-button'
+
+async function getStats() {
+  const db = createServerClient()
+  const [articles, signals, sources, pending, failed] = await Promise.all([
+    db.from('articles').select('id', { count: 'exact', head: true }),
+    db.from('signals').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+    db.from('sources').select('id', { count: 'exact', head: true }).eq('is_active', true),
+    db.from('articles').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+    db.from('articles').select('id', { count: 'exact', head: true }).eq('status', 'failed'),
+  ])
+  return {
+    articles: articles.count ?? 0,
+    signals: signals.count ?? 0,
+    sources: sources.count ?? 0,
+    pending: pending.count ?? 0,
+    failed: failed.count ?? 0,
+  }
+}
+
+async function getRecentArticles() {
+  const db = createServerClient()
+  const { data } = await db
+    .from('articles')
+    .select('id, title, url, published_at, scraped_at, category, sentiment, relevance_score, sources(name)')
+    .eq('status', 'done')
+    .order('scraped_at', { ascending: false })
+    .limit(10)
+  return data ?? []
+}
+
+async function getActiveSignals() {
+  const db = createServerClient()
+  const { data } = await db
+    .from('signals')
+    .select('id, type, title, description, severity, detected_at')
+    .eq('status', 'active')
+    .order('detected_at', { ascending: false })
+    .limit(5)
+  return data ?? []
+}
+
+async function getSourcesHealth() {
+  const db = createServerClient()
+  const { data } = await db
+    .from('sources')
+    .select('id, name, type, category, last_scraped_at, error_count, is_active')
+    .eq('is_active', true)
+    .order('last_scraped_at', { ascending: false })
+    .limit(6)
+  return data ?? []
+}
+
+const SEVERITY_COLORS: Record<string, string> = {
+  critical: 'bg-red-50 text-red-700 border-red-200',
+  high:     'bg-orange-50 text-orange-700 border-orange-200',
+  medium:   'bg-amber-50 text-amber-700 border-amber-200',
+  low:      'bg-blue-50 text-blue-700 border-blue-200',
+}
+
+const CATEGORY_COLORS: Record<string, string> = {
+  upstream:     'bg-blue-50 text-blue-700',
+  downstream:   'bg-violet-50 text-violet-700',
+  midstream:    'bg-cyan-50 text-cyan-700',
+  supply_chain: 'bg-emerald-50 text-emerald-700',
+  regulation:   'bg-orange-50 text-orange-700',
+  market:       'bg-amber-50 text-amber-700',
+  company:      'bg-pink-50 text-pink-700',
+  politics:     'bg-red-50 text-red-700',
+  other:        'bg-gray-100 text-gray-600',
+}
+
+const SENTIMENT_COLORS: Record<string, string> = {
+  positive: 'text-emerald-600',
+  negative: 'text-red-600',
+  neutral:  'text-[#546278]',
+}
+
+function StatCard({ icon: Icon, label, value, sub, iconBg, iconColor }: {
+  icon: React.ElementType
+  label: string
+  value: number | string
+  sub?: string
+  iconBg: string
+  iconColor: string
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-[#DDE3EC] p-5 flex items-start gap-4">
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
+        <Icon className={`w-5 h-5 ${iconColor}`} />
+      </div>
+      <div>
+        <p className="text-2xl font-bold text-[#111827]">{typeof value === 'number' ? value.toLocaleString('es-AR') : value}</p>
+        <p className="text-sm text-[#546278]">{label}</p>
+        {sub && <p className="text-xs text-[#8A9BB0] mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  )
+}
+
+function ago(date: string | null) {
+  if (!date) return '—'
+  return formatDistanceToNow(new Date(date), { addSuffix: true, locale: es })
+}
+
+export default async function DashboardPage() {
+  const [stats, articles, signals, sources] = await Promise.all([
+    getStats(),
+    getRecentArticles(),
+    getActiveSignals(),
+    getSourcesHealth(),
+  ])
+
+  return (
+    <div className="flex flex-col">
+      {/* Page header */}
+      <div className="bg-[#00205B] px-6 py-5 flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-white">Dashboard</h1>
+          <p className="text-sm text-white/60">Inteligencia de cadena de suministro — O&G Argentina</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <ProcessButton pendingCount={stats.pending + stats.failed} />
+          <RefreshButton />
+        </div>
+      </div>
+    <div className="p-6 space-y-6">
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard icon={Newspaper}  label="Artículos totales"    value={stats.articles} iconBg="bg-[#E8F1FB]" iconColor="text-[#005BAC]" />
+        <StatCard icon={Zap}        label="Señales activas"      value={stats.signals}  iconBg="bg-[#FFF8CC]" iconColor="text-[#B8860B]" />
+        <StatCard icon={Database}   label="Fuentes activas"      value={stats.sources}  iconBg="bg-emerald-50" iconColor="text-emerald-600" />
+        <StatCard icon={Clock}      label="Pendientes / error"   value={`${stats.pending} / ${stats.failed}`} iconBg="bg-violet-50" iconColor="text-violet-600" />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Recent Articles */}
+        <div className="xl:col-span-2 bg-white rounded-xl border border-[#DDE3EC]">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-[#DDE3EC]">
+            <h2 className="text-sm font-semibold text-[#111827] flex items-center gap-2">
+              <Newspaper className="w-4 h-4 text-[#546278]" /> Artículos recientes
+            </h2>
+            <a href="/articles" className="text-xs text-[#005BAC] hover:text-[#004A96] font-medium">Ver todos →</a>
+          </div>
+          <div className="divide-y divide-[#DDE3EC]">
+            {articles.length === 0 ? (
+              <div className="px-5 py-8 text-center text-[#8A9BB0] text-sm">
+                Aún no hay artículos procesados. El scraper está iniciando...
+              </div>
+            ) : articles.map((a: any) => (
+              <div key={a.id} className="px-5 py-3 hover:bg-[#F5F7FA] transition-colors">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <a
+                      href={a.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-[#1A2B4A] hover:text-[#005BAC] line-clamp-2 leading-snug font-medium transition-colors"
+                    >
+                      {a.title ?? 'Sin título'}
+                    </a>
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {a.category && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${CATEGORY_COLORS[a.category] ?? CATEGORY_COLORS.other}`}>
+                          {a.category}
+                        </span>
+                      )}
+                      {a.sentiment && (
+                        <span className={`text-[10px] font-medium ${SENTIMENT_COLORS[a.sentiment] ?? ''}`}>
+                          {a.sentiment}
+                        </span>
+                      )}
+                      {a.relevance_score != null && (
+                        <span className="text-[10px] text-[#8A9BB0]">
+                          rel: {(a.relevance_score * 100).toFixed(0)}%
+                        </span>
+                      )}
+                      <span className="text-[10px] text-[#8A9BB0]">{ago(a.scraped_at)}</span>
+                      {a.sources && (
+                        <span className="text-[10px] text-[#8A9BB0] truncate">{(a.sources as any).name}</span>
+                      )}
+                    </div>
+                  </div>
+                  {a.relevance_score != null && (
+                    <div className="shrink-0 w-8 h-8 rounded-full border-2 flex items-center justify-center text-[10px] font-bold"
+                      style={{
+                        borderColor: a.relevance_score > 0.7 ? '#059669' : a.relevance_score > 0.4 ? '#D97706' : '#BCC9D9',
+                        color:       a.relevance_score > 0.7 ? '#059669' : a.relevance_score > 0.4 ? '#D97706' : '#8A9BB0',
+                      }}
+                    >
+                      {(a.relevance_score * 10).toFixed(0)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Right column */}
+        <div className="space-y-4">
+          {/* Active Signals */}
+          <div className="bg-white rounded-xl border border-[#DDE3EC]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#DDE3EC]">
+              <h2 className="text-sm font-semibold text-[#111827] flex items-center gap-2">
+                <Zap className="w-4 h-4 text-[#B8860B]" /> Señales activas
+              </h2>
+              <a href="/signals" className="text-xs text-[#005BAC] hover:text-[#004A96] font-medium">Ver todas →</a>
+            </div>
+            <div className="divide-y divide-[#DDE3EC]">
+              {signals.length === 0 ? (
+                <div className="px-4 py-6 text-center text-[#8A9BB0] text-xs">Sin señales activas</div>
+              ) : signals.map((s: any) => (
+                <div key={s.id} className="px-4 py-3">
+                  <div className="flex items-start gap-2">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0 mt-0.5 ${SEVERITY_COLORS[s.severity] ?? ''}`}>
+                      {s.severity}
+                    </span>
+                    <div>
+                      <p className="text-xs text-[#1A2B4A] font-medium leading-snug">{s.title}</p>
+                      <p className="text-[10px] text-[#8A9BB0] mt-0.5">{ago(s.detected_at)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Sources Health */}
+          <div className="bg-white rounded-xl border border-[#DDE3EC]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#DDE3EC]">
+              <h2 className="text-sm font-semibold text-[#111827] flex items-center gap-2">
+                <Database className="w-4 h-4 text-emerald-600" /> Estado de fuentes
+              </h2>
+              <a href="/sources" className="text-xs text-[#005BAC] hover:text-[#004A96] font-medium">Ver todas →</a>
+            </div>
+            <div className="divide-y divide-[#DDE3EC]">
+              {sources.map((s: any) => (
+                <div key={s.id} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs text-[#1A2B4A] truncate font-medium">{s.name}</p>
+                    <p className="text-[10px] text-[#8A9BB0]">{s.last_scraped_at ? ago(s.last_scraped_at) : 'nunca'}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {s.error_count > 0 && (
+                      <AlertTriangle className="w-3 h-3 text-orange-500" />
+                    )}
+                    <div className={`w-2 h-2 rounded-full ${s.error_count > 3 ? 'bg-red-500' : s.last_scraped_at ? 'bg-emerald-500' : 'bg-[#BCC9D9]'}`} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div>
+  )
+}
