@@ -1,0 +1,40 @@
+version: '3.9'
+
+services:
+  # ── Redis ─────────────────────────────────────────────────
+  redis:
+    image: redis:7.4-alpine
+    container_name: ogasci-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis UI (local dev only) ──────────────────────────────
+  redis-ui:
+    image: redislabs/redisinsight:latest
+    container_name: ogasci-redis-ui
+    ports:
+      - '5540:5540'
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - tools
+
+  # ── Bull Board (queue dashboard) ──────────────────────────
+  # Exposed via the API at /admin/queues in dev mode
+
+volumes:
+  redis_data:
+
+# NOTE: PostgreSQL is provided by Supabase Cloud (or Supabase CLI local dev).
+# For full local Supabase stack run: npx supabase start
+# This spins up: postgres, auth, storage, realtime, studio on localhost:54323
