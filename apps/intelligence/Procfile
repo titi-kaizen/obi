@@ -1,0 +1,4 @@
+web: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2
+scraper: celery -A celery_worker worker --loglevel=info -Q scrape -c 8 --without-heartbeat
+pipeline: celery -A celery_worker worker --loglevel=info -Q pipeline -c 4 --without-heartbeat
+beat: celery -A celery_worker beat --loglevel=info
