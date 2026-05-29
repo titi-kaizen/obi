@@ -1,35 +1,10 @@
 import { createServerClient } from '@/lib/supabase'
+import { OPERATOR_MAP, OPERATOR_KEYWORDS } from '@/lib/operators'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { formatDistanceToNow, format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { ArrowLeft, ExternalLink, TrendingUp, TrendingDown, Minus, FileText, Newspaper } from 'lucide-react'
-
-const OPERATORS: Record<string, {
-  slug: string; name: string; category: string; country: string
-  website: string; description: string
-}> = {
-  ypf:           { slug: 'ypf',           name: 'YPF',                      category: 'producer',        country: 'AR', website: 'https://www.ypf.com',             description: 'Mayor productora de oil & gas de Argentina.' },
-  pae:           { slug: 'pae',           name: 'Pan American Energy',       category: 'producer',        country: 'AR', website: 'https://www.pan-energy.com',      description: 'Productora privada líder, op. en Vaca Muerta y Golfo San Jorge.' },
-  vista_energy:  { slug: 'vista_energy',  name: 'Vista Energy',              category: 'producer',        country: 'AR', website: 'https://www.vistaenergy.com',     description: 'Foco en Vaca Muerta; cotiza en NYSE y BMV.' },
-  tecpetrol:     { slug: 'tecpetrol',     name: 'Tecpetrol',                 category: 'producer',        country: 'AR', website: 'https://www.tecpetrol.com',       description: 'Subsidiaria del Grupo Techint; operadora en Fortín de Piedra.' },
-  totalenergies: { slug: 'totalenergies', name: 'TotalEnergies',             category: 'integrated',      country: 'FR', website: 'https://totalenergies.com',       description: 'Integrada global con operaciones en Vaca Muerta.' },
-  shell:         { slug: 'shell',         name: 'Shell Argentina',           category: 'integrated',      country: 'NL', website: 'https://www.shell.com.ar',        description: 'Integrada con presencia en exploración y downstream.' },
-  chevron:       { slug: 'chevron',       name: 'Chevron Argentina',         category: 'producer',        country: 'US', website: 'https://www.chevron.com',         description: 'Socio de YPF en Vaca Muerta.' },
-  pluspetrol:    { slug: 'pluspetrol',    name: 'Pluspetrol',                category: 'producer',        country: 'AR', website: 'https://www.pluspetrol.net',      description: 'Productora con operaciones en cuencas argentinas.' },
-  cgc:           { slug: 'cgc',           name: 'CGC',                       category: 'producer',        country: 'AR', website: 'https://www.cgc.com.ar',          description: 'Compañía General de Combustibles.' },
-  pampa:         { slug: 'pampa',         name: 'Pampa Energía',             category: 'integrated',      country: 'AR', website: 'https://www.pampaenergia.com',    description: 'Integrada argentina: generación, transmisión y O&G.' },
-  slb:           { slug: 'slb',           name: 'SLB',                       category: 'service_company', country: 'US', website: 'https://www.slb.com',             description: 'Mayor empresa de servicios oilfield del mundo.' },
-  halliburton:   { slug: 'halliburton',   name: 'Halliburton',               category: 'service_company', country: 'US', website: 'https://www.halliburton.com',     description: 'Empresa de servicios oilfield global.' },
-  baker_hughes:  { slug: 'baker_hughes',  name: 'Baker Hughes',              category: 'service_company', country: 'US', website: 'https://www.bakerhughes.com',     description: 'Tecnología y servicios para el sector energético.' },
-  weatherford:   { slug: 'weatherford',   name: 'Weatherford',               category: 'service_company', country: 'US', website: 'https://www.weatherford.com',     description: 'Servicios y equipamiento para perforación.' },
-  techint:       { slug: 'techint',       name: 'Techint',                   category: 'service_company', country: 'AR', website: 'https://www.techint.com',         description: 'Ingeniería y construcción para O&G.' },
-  aesa:          { slug: 'aesa',          name: 'AESA',                      category: 'service_company', country: 'AR', website: 'https://www.aesa.com.ar',         description: 'Servicios de construcción para hidrocarburos.' },
-  sacde:         { slug: 'sacde',         name: 'SACDE',                     category: 'service_company', country: 'AR', website: 'https://www.sacde.com',           description: 'Empresa constructora para proyectos energéticos.' },
-  pecom:         { slug: 'pecom',         name: 'Pecom',                     category: 'service_company', country: 'AR', website: 'https://www.pecomenergia.com.ar', description: 'Servicios industriales para petróleo y gas.' },
-  san_antonio:   { slug: 'san_antonio',   name: 'San Antonio Internacional', category: 'service_company', country: 'AR', website: 'https://www.sanantonio.com.ar',   description: 'Servicios integrales de perforación y completación.' },
-  calfrac:       { slug: 'calfrac',       name: 'Calfrac',                   category: 'service_company', country: 'CA', website: 'https://www.calfrac.com',         description: 'Servicios de fractura hidráulica.' },
-}
 
 const CATEGORY_LABEL: Record<string, string> = {
   producer: 'Productora', integrated: 'Integrada', service_company: 'Servicios',
@@ -76,19 +51,48 @@ async function getLatestBrief(slug: string) {
 
 async function getRecentArticles(slug: string) {
   const db = createServerClient()
-  const { data } = await db
+
+  // Try articles_v2 first (Python pipeline, has operator_slugs)
+  const { data: v2 } = await db
     .from('articles_v2')
     .select('id, title, url, published_at, scraped_at, category, sentiment, relevance_score, source_name, keywords')
     .eq('status', 'completed')
     .contains('operator_slugs', [slug])
     .order('scraped_at', { ascending: false })
     .limit(20)
-  return data ?? []
+
+  if (v2 && v2.length > 0) return v2
+
+  // Fallback: keyword search on old articles table
+  const keywords = OPERATOR_KEYWORDS[slug] ?? []
+  if (!keywords.length) return []
+
+  const orFilter = keywords.map(k => `title.ilike.%${k}%`).join(',')
+  const { data: old } = await db
+    .from('articles')
+    .select('id, title, url, published_at, scraped_at, category, sentiment, relevance_score, sources(name)')
+    .eq('status', 'done')
+    .or(orFilter)
+    .order('scraped_at', { ascending: false })
+    .limit(20)
+
+  return (old ?? []).map((a: any) => ({
+    id: a.id,
+    title: a.title,
+    url: a.url,
+    published_at: a.published_at,
+    scraped_at: a.scraped_at,
+    category: a.category,
+    sentiment: a.sentiment,
+    relevance_score: a.relevance_score,
+    source_name: a.sources?.name ?? '',
+    keywords: [] as string[],
+  }))
 }
 
 export default async function OperatorDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
-  const op = OPERATORS[slug]
+  const op = OPERATOR_MAP[slug]
   if (!op) notFound()
 
   const [brief, articles] = await Promise.all([
@@ -160,10 +164,9 @@ export default async function OperatorDetailPage({ params }: { params: Promise<{
             <div className="divide-y divide-[#DDE3EC]">
               {articles.length === 0 ? (
                 <div className="px-5 py-10 text-center text-[#8A9BB0] text-sm">
-                  Sin artículos clasificados aún para {op.name}.<br />
-                  <span className="text-xs">El pipeline los asociará cuando procese nuevas noticias.</span>
+                  Sin artículos clasificados aún para {op.name}.
                 </div>
-              ) : articles.map((a: any) => (
+              ) : articles.map((a) => (
                 <div key={a.id} className="px-5 py-3 hover:bg-[#F5F7FA] transition-colors">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
