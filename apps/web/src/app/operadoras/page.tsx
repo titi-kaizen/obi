@@ -1,29 +1,7 @@
 import { createServerClient } from '@/lib/supabase'
+import { OPERATORS, OPERATOR_KEYWORDS } from '@/lib/operators'
 import Link from 'next/link'
 import { Building2, TrendingUp, TrendingDown, Minus } from 'lucide-react'
-
-const OPERATORS = [
-  { slug: 'ypf',           name: 'YPF',                      category: 'producer',        country: 'AR', website: 'https://www.ypf.com',             description: 'Mayor productora de oil & gas de Argentina.' },
-  { slug: 'pae',           name: 'Pan American Energy',       category: 'producer',        country: 'AR', website: 'https://www.pan-energy.com',      description: 'Productora privada líder, op. en Vaca Muerta y Golfo San Jorge.' },
-  { slug: 'vista_energy',  name: 'Vista Energy',              category: 'producer',        country: 'AR', website: 'https://www.vistaenergy.com',     description: 'Foco en Vaca Muerta; cotiza en NYSE y BMV.' },
-  { slug: 'tecpetrol',     name: 'Tecpetrol',                 category: 'producer',        country: 'AR', website: 'https://www.tecpetrol.com',       description: 'Subsidiaria del Grupo Techint; operadora en Fortín de Piedra.' },
-  { slug: 'totalenergies', name: 'TotalEnergies',             category: 'integrated',      country: 'FR', website: 'https://totalenergies.com',       description: 'Integrada global con operaciones en Vaca Muerta.' },
-  { slug: 'shell',         name: 'Shell Argentina',           category: 'integrated',      country: 'NL', website: 'https://www.shell.com.ar',        description: 'Integrada con presencia en exploración y downstream.' },
-  { slug: 'chevron',       name: 'Chevron Argentina',         category: 'producer',        country: 'US', website: 'https://www.chevron.com',         description: 'Socio de YPF en Vaca Muerta.' },
-  { slug: 'pluspetrol',    name: 'Pluspetrol',                category: 'producer',        country: 'AR', website: 'https://www.pluspetrol.net',      description: 'Productora con operaciones en cuencas argentinas.' },
-  { slug: 'cgc',           name: 'CGC',                       category: 'producer',        country: 'AR', website: 'https://www.cgc.com.ar',          description: 'Compañía General de Combustibles.' },
-  { slug: 'pampa',         name: 'Pampa Energía',             category: 'integrated',      country: 'AR', website: 'https://www.pampaenergia.com',    description: 'Integrada argentina: generación, transmisión y O&G.' },
-  { slug: 'slb',           name: 'SLB',                       category: 'service_company', country: 'US', website: 'https://www.slb.com',             description: 'Mayor empresa de servicios oilfield del mundo.' },
-  { slug: 'halliburton',   name: 'Halliburton',               category: 'service_company', country: 'US', website: 'https://www.halliburton.com',     description: 'Empresa de servicios oilfield global.' },
-  { slug: 'baker_hughes',  name: 'Baker Hughes',              category: 'service_company', country: 'US', website: 'https://www.bakerhughes.com',     description: 'Tecnología y servicios para el sector energético.' },
-  { slug: 'weatherford',   name: 'Weatherford',               category: 'service_company', country: 'US', website: 'https://www.weatherford.com',     description: 'Servicios y equipamiento para perforación.' },
-  { slug: 'techint',       name: 'Techint',                   category: 'service_company', country: 'AR', website: 'https://www.techint.com',         description: 'Ingeniería y construcción para O&G.' },
-  { slug: 'aesa',          name: 'AESA',                      category: 'service_company', country: 'AR', website: 'https://www.aesa.com.ar',         description: 'Servicios de construcción para hidrocarburos.' },
-  { slug: 'sacde',         name: 'SACDE',                     category: 'service_company', country: 'AR', website: 'https://www.sacde.com',           description: 'Empresa constructora para proyectos energéticos.' },
-  { slug: 'pecom',         name: 'Pecom',                     category: 'service_company', country: 'AR', website: 'https://www.pecomenergia.com.ar', description: 'Servicios industriales para petróleo y gas.' },
-  { slug: 'san_antonio',   name: 'San Antonio Internacional', category: 'service_company', country: 'AR', website: 'https://www.sanantonio.com.ar',   description: 'Servicios integrales de perforación y completación.' },
-  { slug: 'calfrac',       name: 'Calfrac',                   category: 'service_company', country: 'CA', website: 'https://www.calfrac.com',         description: 'Servicios de fractura hidráulica.' },
-]
 
 type Operator = typeof OPERATORS[number]
 
@@ -76,16 +54,36 @@ async function getLatestBriefs(): Promise<BriefMap> {
 
 async function getArticleCounts(): Promise<CountMap> {
   const db = createServerClient()
-  const { data } = await db
+
+  // Try articles_v2 first (Python pipeline)
+  const { data: v2 } = await db
     .from('articles_v2')
     .select('operator_slugs')
     .eq('status', 'completed')
-  if (!data) return {}
+
   const counts: CountMap = {}
-  for (const row of data) {
-    for (const slug of (row.operator_slugs ?? [])) {
-      counts[slug] = (counts[slug] ?? 0) + 1
+
+  if (v2 && v2.length > 0) {
+    for (const row of v2) {
+      for (const slug of (row.operator_slugs ?? [])) {
+        counts[slug] = (counts[slug] ?? 0) + 1
+      }
     }
+    return counts
+  }
+
+  // Fallback: keyword match on old articles table
+  const { data: old } = await db
+    .from('articles')
+    .select('title')
+    .eq('status', 'done')
+    .not('title', 'is', null)
+
+  if (!old) return counts
+  for (const [slug, keywords] of Object.entries(OPERATOR_KEYWORDS)) {
+    counts[slug] = old.filter(a =>
+      keywords.some(kw => a.title?.toLowerCase().includes(kw.toLowerCase()))
+    ).length
   }
   return counts
 }
@@ -138,7 +136,7 @@ function OperatorCard({ op, brief, count }: { op: Operator; brief?: BriefMap[str
 
 function Section({ title, operators, briefs, counts }: {
   title: string
-  operators: Operator[]
+  operators: readonly Operator[]
   briefs: BriefMap
   counts: CountMap
 }) {
