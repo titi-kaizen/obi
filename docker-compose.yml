@@ -29,8 +29,85 @@ services:
     profiles:
       - tools
 
-  # ── Bull Board (queue dashboard) ──────────────────────────
-  # Exposed via the API at /admin/queues in dev mode
+  # ── OBI Intelligence (Python FastAPI) ────────────────────
+  intelligence-api:
+    build:
+      context: ./apps/intelligence
+      dockerfile: Dockerfile
+    container_name: obi-intelligence-api
+    ports:
+      - '8000:8000'
+    env_file:
+      - ./apps/intelligence/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Celery Worker (scraping queue) ────────────────────────
+  celery-scraper:
+    build:
+      context: ./apps/intelligence
+      dockerfile: Dockerfile
+    container_name: obi-celery-scraper
+    command: celery -A celery_worker worker --loglevel=info -Q scrape -c 8 --without-heartbeat
+    env_file:
+      - ./apps/intelligence/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Celery Worker (AI pipeline queue) ────────────────────
+  celery-pipeline:
+    build:
+      context: ./apps/intelligence
+      dockerfile: Dockerfile
+    container_name: obi-celery-pipeline
+    command: celery -A celery_worker worker --loglevel=info -Q pipeline -c 4 --without-heartbeat
+    env_file:
+      - ./apps/intelligence/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Celery Beat (scheduler) ───────────────────────────────
+  celery-beat:
+    build:
+      context: ./apps/intelligence
+      dockerfile: Dockerfile
+    container_name: obi-celery-beat
+    command: celery -A celery_worker beat --loglevel=info --scheduler celery.beat:PersistentScheduler
+    env_file:
+      - ./apps/intelligence/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Flower (Celery monitoring) ────────────────────────────
+  flower:
+    build:
+      context: ./apps/intelligence
+      dockerfile: Dockerfile
+    container_name: obi-flower
+    command: celery -A celery_worker flower --port=5555 --basic_auth=admin:obi2025
+    ports:
+      - '5555:5555'
+    env_file:
+      - ./apps/intelligence/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - tools
+    restart: unless-stopped
 
 volumes:
   redis_data:
