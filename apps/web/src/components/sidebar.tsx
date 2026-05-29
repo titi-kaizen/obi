@@ -10,15 +10,17 @@ import {
   Bell,
   FileText,
   Zap,
+  Building2,
 } from 'lucide-react'
 
 const nav = [
-  { href: '/',          label: 'Dashboard',  icon: LayoutDashboard },
-  { href: '/articles',  label: 'Artículos',  icon: Newspaper },
-  { href: '/signals',   label: 'Señales',    icon: Zap },
-  { href: '/sources',   label: 'Fuentes',    icon: Database },
-  { href: '/alerts',    label: 'Alertas',    icon: Bell },
-  { href: '/briefs',    label: 'Briefs',     icon: FileText },
+  { href: '/',           label: 'Dashboard',  icon: LayoutDashboard },
+  { href: '/articles',   label: 'Artículos',  icon: Newspaper },
+  { href: '/operadoras', label: 'Operadoras', icon: Building2 },
+  { href: '/signals',    label: 'Señales',    icon: Zap },
+  { href: '/sources',    label: 'Fuentes',    icon: Database },
+  { href: '/alerts',     label: 'Alertas',    icon: Bell },
+  { href: '/briefs',     label: 'Briefs',     icon: FileText },
 ]
 
 export default function Sidebar() {
