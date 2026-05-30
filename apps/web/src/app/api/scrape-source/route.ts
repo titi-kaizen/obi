@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
-import { scrapeRSS, scrapeHTML, urlHash, titleHash } from '@/lib/inline-scraper'
+import { scrapeRSS, scrapeHTML, tryRSSFeed, urlHash, titleHash } from '@/lib/inline-scraper'
 
 export const maxDuration = 60
 
@@ -11,19 +11,18 @@ export async function POST(request: Request) {
 
     const db = createServerClient()
     const { data: source, error } = await db
-      .from('sources')
-      .select('id, name, url, type, selector')
+      .from('sources_v2')
+      .select('id, name, url, source_type, selector, error_count')
       .eq('id', sourceId)
       .single()
 
     if (error || !source) return NextResponse.json({ error: 'Fuente no encontrada' }, { status: 404 })
 
-    if (source.type === 'playwright') {
-      return NextResponse.json({ ok: false, error: 'Fuente playwright requiere el worker local' }, { status: 422 })
+    if (source.source_type === 'playwright') {
+      return NextResponse.json({ ok: false, error: 'Fuente playwright no soportada en el scraper inline' }, { status: 422 })
     }
 
     const { newCount, skippedCount, total } = await runScrape(db, source)
-
     return NextResponse.json({ ok: true, newCount, skippedCount, total, sourceName: source.name })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
@@ -32,24 +31,40 @@ export async function POST(request: Request) {
 
 async function runScrape(
   db: ReturnType<typeof createServerClient>,
-  source: { id: string; name: string; url: string; type: string; selector: string | null }
+  source: { id: string; name: string; url: string; source_type: string; selector: string | null; error_count: number },
 ) {
+  const t0 = Date.now()
+
   const { data: log } = await db
-    .from('scrape_logs')
-    .insert({ source_id: source.id, status: 'running' })
+    .from('scrape_logs_v2')
+    .insert({ source_id: source.id, source_name: source.name, status: 'running' })
     .select('id')
     .single()
 
-  let items
+  let items: Awaited<ReturnType<typeof scrapeHTML>>
   try {
-    items = source.type === 'rss'
-      ? await scrapeRSS(source.url)
-      : await scrapeHTML(source.url, source.selector ?? undefined)
+    if (source.source_type === 'rss') {
+      items = await scrapeRSS(source.url)
+    } else {
+      items = await tryRSSFeed(source.url)
+      if (items.length === 0) {
+        items = await scrapeHTML(source.url, source.selector ?? undefined)
+      }
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
+    const duration = Date.now() - t0
     await Promise.all([
-      db.from('sources').update({ last_error: msg }).eq('id', source.id),
-      log && db.from('scrape_logs').update({ status: 'failed', error_message: msg, finished_at: new Date().toISOString() }).eq('id', log.id),
+      db.from('sources_v2').update({
+        last_error: msg.slice(0, 500),
+        error_count: (source.error_count ?? 0) + 1,
+      }).eq('id', source.id),
+      log && db.from('scrape_logs_v2').update({
+        status: 'failed',
+        error_message: msg.slice(0, 500),
+        finished_at: new Date().toISOString(),
+        duration_ms: duration,
+      }).eq('id', log.id),
     ])
     throw err
   }
@@ -61,14 +76,13 @@ async function runScrape(
   }))
 
   const { data: existing } = await db
-    .from('articles')
+    .from('articles_v2')
     .select('url_hash')
     .in('url_hash', withHashes.map(i => i.urlHash))
 
-  const seenUrls  = new Set((existing ?? []).map((r: { url_hash: string }) => r.url_hash))
+  const seenUrls   = new Set((existing ?? []).map((r: { url_hash: string }) => r.url_hash))
   const seenTitles = new Set<string>()
-
-  const toInsert = []
+  const toInsert: object[] = []
   let skippedCount = 0
 
   for (const item of withHashes) {
@@ -78,37 +92,42 @@ async function runScrape(
     if (item.titleHash) seenTitles.add(item.titleHash)
     toInsert.push({
       source_id:    source.id,
+      source_name:  source.name,
       url:          item.url,
       url_hash:     item.urlHash,
       title:        item.title,
       content:      item.content,
       published_at: item.published_at,
-      status:       'pending',
+      status:       'scraped',
+      scrape_method: source.source_type === 'rss' ? 'rss' : 'html',
     })
   }
 
   let newCount = 0
   if (toInsert.length > 0) {
     const { data: inserted } = await db
-      .from('articles')
+      .from('articles_v2')
       .upsert(toInsert, { onConflict: 'url_hash', ignoreDuplicates: true })
       .select('id')
     newCount = inserted?.length ?? 0
     skippedCount += toInsert.length - newCount
   }
 
+  const duration = Date.now() - t0
+
   await Promise.all([
-    db.from('sources').update({
+    db.from('sources_v2').update({
       last_scraped_at: new Date().toISOString(),
       last_error: null,
       error_count: 0,
     }).eq('id', source.id),
-    log && db.from('scrape_logs').update({
+    log && db.from('scrape_logs_v2').update({
       status: 'success',
       articles_found:   items.length,
       articles_new:     newCount,
       articles_skipped: skippedCount,
       finished_at:      new Date().toISOString(),
+      duration_ms:      duration,
     }).eq('id', log.id),
   ])
 
