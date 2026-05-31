@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
 import Groq from 'groq-sdk'
+import { OPERATOR_KEYWORDS } from '@/lib/operators'
+
+function detectOperators(text: string): string[] {
+  const lower = text.toLowerCase()
+  return Object.entries(OPERATOR_KEYWORDS)
+    .filter(([, keywords]) => keywords.some(kw => lower.includes(kw.toLowerCase())))
+    .map(([slug]) => slug)
+}
 
 export const maxDuration = 60
 
@@ -95,6 +103,8 @@ async function processPending() {
       const elapsed = Date.now() - t0
 
       const isRelevant = result.relevance_score >= 0.15
+      const searchText = [article.title, article.content, result.keywords.join(' '), result.summary].join(' ')
+      const operatorSlugs = detectOperators(searchText)
       await db.from('articles_v2').update({
         status:                isRelevant ? 'completed' : 'irrelevant',
         category:              result.category,
@@ -104,6 +114,7 @@ async function processPending() {
         supply_chain_impact:   result.supply_chain_impact ?? null,
         keywords:              result.keywords,
         summary:               result.summary,
+        operator_slugs:        operatorSlugs,
         processed_at:          new Date().toISOString(),
         pipeline_completed_at: new Date().toISOString(),
         pipeline_duration_ms:  elapsed,
