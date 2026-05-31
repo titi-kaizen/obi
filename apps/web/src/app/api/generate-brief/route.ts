@@ -20,12 +20,12 @@ export async function POST(request: Request) {
 
     const db = createServerClient()
     const today = new Date().toISOString().slice(0, 10)
-    const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
     let query = db
-      .from('articles')
-      .select('id, title, summary, category, sentiment, relevance_score, url, published_at, source_id')
-      .eq('status', 'done')
+      .from('articles_v2')
+      .select('id, title, summary, category, sentiment, relevance_score, url, published_at, source_id, keywords')
+      .eq('status', 'completed')
       .gte('scraped_at', since)
       .gte('relevance_score', 0.35)
       .not('category', 'in', '("politics","other")')
@@ -47,22 +47,17 @@ export async function POST(request: Request) {
       )
     }
 
-    const articleIds = articles.map((a: any) => a.id)
-    const { data: entityData } = await db
-      .from('article_entities')
-      .select('entity:entities(name, type)')
-      .in('article_id', articleIds)
-      .limit(300)
-
-    const entityFreq: Record<string, { name: string; type: string; count: number }> = {}
-    for (const row of entityData ?? []) {
-      const entity = (Array.isArray(row.entity) ? row.entity[0] : row.entity) as { name: string; type: string } | null
-      if (!entity) continue
-      const key = entity.name
-      if (!entityFreq[key]) entityFreq[key] = { name: entity.name, type: entity.type, count: 0 }
-      entityFreq[key].count++
+    // Aggregate keywords from articles as proxy for entity frequency
+    const kwFreq: Record<string, number> = {}
+    for (const a of articles as any[]) {
+      for (const kw of (a.keywords ?? [])) {
+        kwFreq[kw] = (kwFreq[kw] ?? 0) + 1
+      }
     }
-    const topEntities = Object.values(entityFreq).sort((a, b) => b.count - a.count).slice(0, 15)
+    const topEntities = Object.entries(kwFreq)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15)
+      .map(([name, count]) => ({ name, type: 'keyword', count }))
 
     const { data: signals } = await db
       .from('signals')
