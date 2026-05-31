@@ -1,14 +1,20 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
-import Groq from 'groq-sdk'
+import { geminiJSON } from '@/lib/gemini'
 
 export const maxDuration = 60
 
+interface Insight {
+  titulo: string
+  descripcion: string
+  tipo: string
+  impacto: 'alto' | 'medio' | 'bajo'
+  categoria_afectada?: string | null
+}
+
 export async function POST() {
   try {
-  const db     = createServerClient()
-  const apiKey = process.env.GROQ_API_KEY
-  if (!apiKey) return NextResponse.json({ error: 'GROQ_API_KEY no configurada' }, { status: 500 })
+  const db = createServerClient()
 
   const since90d = new Date(Date.now() - 90 * 86400_000).toISOString()
   const since30d = new Date(Date.now() - 30 * 86400_000).toISOString()
@@ -73,27 +79,19 @@ REGLAS:
 - NO inventés precios o montos que no estén en los datos.
 - Si hay pocos datos contractuales, basate en las noticias y señalá la limitación con honestidad.`
 
-  const groq = new Groq({ apiKey })
-  const resp = await groq.chat.completions.create({
-    model:       'llama-3.1-8b-instant',
-    max_tokens:  1500,
-    temperature: 0.3,
-    messages:    [{ role: 'user', content: prompt }],
-    response_format: { type: 'json_object' },
-  })
+  const geminiKey = process.env['GEMINI_API_KEY']
+  if (!geminiKey) return NextResponse.json({ error: 'GEMINI_API_KEY no configurada' }, { status: 500 })
 
-  let result: Record<string, any> = {}
-  try {
-    const raw = resp.choices[0]?.message?.content ?? '{}'
-    const m = raw.match(/\{[\s\S]*\}/)
-    result = m ? JSON.parse(m[0]) : {}
-  } catch { result = { insights: [], outlook: '' } }
+  const result = await geminiJSON<{ insights: Insight[]; outlook: string }>(
+    prompt, geminiKey, { temperature: 0.3, maxTokens: 1500 }
+  )
 
   return NextResponse.json({
     insights:    Array.isArray(result.insights) ? result.insights : [],
     outlook:     String(result.outlook ?? ''),
     generatedAt: new Date().toISOString(),
     dataPoints:  { contracts: contracts.length, articles: articles.length },
+    model:       'gemini-2.0-flash-lite',
   })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
