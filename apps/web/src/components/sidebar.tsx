@@ -13,6 +13,7 @@ import {
   Building2,
   Activity,
   BarChart3,
+  HelpCircle,
 } from 'lucide-react'
 
 const nav = [
@@ -25,6 +26,7 @@ const nav = [
   { href: '/sources',    label: 'Fuentes',    icon: Database },
   { href: '/alerts',     label: 'Alertas',    icon: Bell },
   { href: '/briefs',     label: 'Briefs',     icon: FileText },
+  { href: '/about',      label: 'Guía',       icon: HelpCircle },
 ]
 
 export default function Sidebar() {
