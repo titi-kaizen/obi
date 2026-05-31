@@ -5,6 +5,7 @@ import Groq from 'groq-sdk'
 export const maxDuration = 60
 
 export async function POST() {
+  try {
   const db     = createServerClient()
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) return NextResponse.json({ error: 'GROQ_API_KEY no configurada' }, { status: 500 })
@@ -94,4 +95,7 @@ REGLAS:
     generatedAt: new Date().toISOString(),
     dataPoints:  { contracts: contracts.length, articles: articles.length },
   })
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
 }
