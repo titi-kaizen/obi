@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
-import { geminiText } from '@/lib/gemini'
+import Groq from 'groq-sdk'
 
 const SYSTEM_PROMPT = `Eres un analista senior especializado en Oil & Gas Argentina, con foco en Vaca Muerta y el sector energético patagónico.
 
@@ -152,15 +152,18 @@ Genera el informe con exactamente estas secciones en Markdown:
 ---
 *Informe Semanal OBI | Semana ${from}/${to} | ${articles.length} artículos analizados${sourceIds ? ` | ${sourceIds.length} fuentes` : ''}*`
 
-    const geminiKey = process.env['GEMINI_API_KEY']
-    if (!geminiKey) throw new Error('GEMINI_API_KEY no configurada')
-
-    const content = await geminiText(
-      SYSTEM_PROMPT + '\n\n' + userPrompt,
-      geminiKey,
-      { temperature: 0.3, maxTokens: 6000 }
-    )
-    if (!content) throw new Error('No response from Gemini')
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+    const completion = await groq.chat.completions.create({
+      model:       'llama-3.1-8b-instant',
+      max_tokens:  6000,
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user',   content: userPrompt },
+      ],
+    })
+    const content = completion.choices[0]?.message?.content ?? ''
+    if (!content) throw new Error('No response from Groq')
 
     const { error: saveError } = await db
       .from('executive_briefs')
@@ -168,7 +171,7 @@ Genera el informe con exactamente estas secciones en Markdown:
         date:              weekDate,
         brief_type:        'weekly',
         content,
-        model_used:        'gemini-2.0-flash-lite',
+        model_used:        'llama-3.1-8b-instant',
         articles_analyzed: articles.length,
         top_entities:      topEntities,
         key_signals:       (signals.data ?? []).map((s: any) => ({ type: s.type, title: s.title, severity: s.severity })),
