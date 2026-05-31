@@ -75,8 +75,8 @@ REGLAS:
 
   const groq = new Groq({ apiKey })
   const resp = await groq.chat.completions.create({
-    model:       'llama-3.3-70b-versatile',
-    max_tokens:  2000,
+    model:       'llama-3.1-8b-instant',
+    max_tokens:  1500,
     temperature: 0.3,
     messages:    [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
