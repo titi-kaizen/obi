@@ -117,7 +117,7 @@ Genera el brief con exactamente estas secciones en Markdown:
 
     const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
     const completion = await groq.chat.completions.create({
-      model:       'gemma2-9b-it',
+      model:       'meta-llama/llama-4-scout-17b-16e-instruct',
       max_tokens:  3000,
       temperature: 0.3,
       messages: [
@@ -134,7 +134,7 @@ Genera el brief con exactamente estas secciones en Markdown:
         date:              today,
         brief_type:        'daily',
         content,
-        model_used:        'gemma2-9b-it',
+        model_used:        'meta-llama/llama-4-scout-17b-16e-instruct',
         articles_analyzed: articles.length,
         top_entities:      topEntities,
         key_signals:       (signals ?? []).map((s: any) => ({ type: s.type, title: s.title, severity: s.severity })),
