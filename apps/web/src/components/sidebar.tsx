@@ -11,12 +11,16 @@ import {
   FileText,
   Zap,
   Building2,
+  Activity,
+  BarChart3,
 } from 'lucide-react'
 
 const nav = [
   { href: '/',           label: 'Dashboard',  icon: LayoutDashboard },
   { href: '/articles',   label: 'Artículos',  icon: Newspaper },
   { href: '/operadoras', label: 'Operadoras', icon: Building2 },
+  { href: '/market',     label: 'Mercado',    icon: BarChart3 },
+  { href: '/pipeline',   label: 'Pipeline',   icon: Activity },
   { href: '/signals',    label: 'Señales',    icon: Zap },
   { href: '/sources',    label: 'Fuentes',    icon: Database },
   { href: '/alerts',     label: 'Alertas',    icon: Bell },
