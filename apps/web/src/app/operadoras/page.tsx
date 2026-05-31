@@ -3,6 +3,8 @@ import { OPERATORS, OPERATOR_KEYWORDS } from '@/lib/operators'
 import Link from 'next/link'
 import { Building2, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
+export const dynamic = 'force-dynamic'
+
 type Operator = typeof OPERATORS[number]
 
 type BriefMap = Record<string, {
