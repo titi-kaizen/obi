@@ -7,19 +7,28 @@ import { Cpu, CheckCircle, AlertCircle } from 'lucide-react'
 export default function ProcessButton({ pendingCount }: { pendingCount: number }) {
   const router = useRouter()
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
-  const [message, setMessage] = useState('')
+  const [processed, setProcessed] = useState(0)
+  const [error, setError] = useState('')
 
   async function trigger() {
     setState('loading')
+    setProcessed(0)
+    let total = 0
     try {
-      const res = await fetch('/api/process-pending', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Error')
-      setMessage(data.message)
+      while (true) {
+        const res = await fetch('/api/process-pending', { method: 'POST' })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error ?? 'Error')
+        total += data.processed ?? 0
+        setProcessed(total)
+        router.refresh()
+        // Stop when nothing left to process
+        if (!data.processed || data.processed === 0) break
+      }
       setState('done')
-      setTimeout(() => { setState('idle'); router.refresh() }, 3000)
+      setTimeout(() => setState('idle'), 4000)
     } catch (err) {
-      setMessage(String(err))
+      setError(String(err))
       setState('error')
       setTimeout(() => setState('idle'), 4000)
     }
@@ -31,7 +40,7 @@ export default function ProcessButton({ pendingCount }: { pendingCount: number }
     <button
       onClick={trigger}
       disabled={state === 'loading'}
-      title={message || undefined}
+      title={error || undefined}
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
         state === 'done'  ? 'bg-green-50 border-green-200 text-green-700' :
         state === 'error' ? 'bg-red-50 border-red-200 text-red-700' :
@@ -41,8 +50,8 @@ export default function ProcessButton({ pendingCount }: { pendingCount: number }
       {state === 'done'    ? <CheckCircle className="w-3.5 h-3.5" /> :
        state === 'error'   ? <AlertCircle className="w-3.5 h-3.5" /> :
        <Cpu className={`w-3.5 h-3.5 ${state === 'loading' ? 'animate-pulse' : ''}`} />}
-      {state === 'loading' ? 'Verificando...' :
-       state === 'done'    ? 'Listo' :
+      {state === 'loading' ? `Clasificando... ${processed > 0 ? processed + ' listos' : ''}` :
+       state === 'done'    ? `${processed} clasificados` :
        state === 'error'   ? 'Error' :
        `${pendingCount} pendientes`}
     </button>
