@@ -66,9 +66,9 @@ export async function POST(request: Request) {
       .order('detected_at', { ascending: false })
       .limit(10)
 
-    const articlesSummary = articles.slice(0, 30).map((a: any, i: number) =>
-      `${i + 1}. [${(a.category ?? 'other').toUpperCase()} | ${a.sentiment ?? 'neutral'} | ${Math.round((a.relevance_score ?? 0) * 100)}%]\n   ${a.title}\n   ${a.summary ?? ''}`
-    ).join('\n\n')
+    const articlesSummary = articles.slice(0, 20).map((a: any, i: number) =>
+      `${i + 1}. [${(a.category ?? 'other').toUpperCase()}|${a.sentiment ?? 'neutral'}|${Math.round((a.relevance_score ?? 0) * 100)}%] ${a.title}`
+    ).join('\n')
 
     const entitiesStr = topEntities.map(e => `- ${e.name} (${e.type}): ${e.count} menciones`).join('\n')
     const signalsStr = (signals ?? []).length > 0
@@ -117,8 +117,8 @@ Genera el brief con exactamente estas secciones en Markdown:
 
     const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
     const completion = await groq.chat.completions.create({
-      model:       'llama-3.1-8b-instant',
-      max_tokens:  4096,
+      model:       'gemma2-9b-it',
+      max_tokens:  3000,
       temperature: 0.3,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
@@ -134,7 +134,7 @@ Genera el brief con exactamente estas secciones en Markdown:
         date:              today,
         brief_type:        'daily',
         content,
-        model_used:        'llama-3.1-8b-instant',
+        model_used:        'gemma2-9b-it',
         articles_analyzed: articles.length,
         top_entities:      topEntities,
         key_signals:       (signals ?? []).map((s: any) => ({ type: s.type, title: s.title, severity: s.severity })),
