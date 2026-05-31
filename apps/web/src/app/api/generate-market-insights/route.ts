@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
-import { geminiJSON } from '@/lib/gemini'
+import Groq from 'groq-sdk'
 
 export const maxDuration = 60
 
@@ -79,19 +79,27 @@ REGLAS:
 - NO inventés precios o montos que no estén en los datos.
 - Si hay pocos datos contractuales, basate en las noticias y señalá la limitación con honestidad.`
 
-  const geminiKey = process.env['GEMINI_API_KEY']
-  if (!geminiKey) return NextResponse.json({ error: 'GEMINI_API_KEY no configurada' }, { status: 500 })
-
-  const result = await geminiJSON<{ insights: Insight[]; outlook: string }>(
-    prompt, geminiKey, { temperature: 0.3, maxTokens: 1500 }
-  )
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+  const resp = await groq.chat.completions.create({
+    model:           'llama-3.1-8b-instant',
+    max_tokens:      1500,
+    temperature:     0.3,
+    messages:        [{ role: 'user', content: prompt }],
+    response_format: { type: 'json_object' },
+  })
+  let result: { insights: Insight[]; outlook: string } = { insights: [], outlook: '' }
+  try {
+    const raw = resp.choices[0]?.message?.content ?? '{}'
+    const m = raw.match(/\{[\s\S]*\}/)
+    result = m ? JSON.parse(m[0]) : result
+  } catch { /* use defaults */ }
 
   return NextResponse.json({
     insights:    Array.isArray(result.insights) ? result.insights : [],
     outlook:     String(result.outlook ?? ''),
     generatedAt: new Date().toISOString(),
     dataPoints:  { contracts: contracts.length, articles: articles.length },
-    model:       'gemini-2.0-flash-lite',
+    model:       'llama-3.1-8b-instant',
   })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
