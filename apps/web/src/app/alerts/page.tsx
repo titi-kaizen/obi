@@ -1,6 +1,8 @@
 import { createServerClient } from '@/lib/supabase'
 import { Bell, Plus } from 'lucide-react'
 
+export const dynamic = 'force-dynamic'
+
 async function getAlerts() {
   const db = createServerClient()
   const { data } = await db
