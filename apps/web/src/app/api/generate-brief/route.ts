@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
-import Groq from 'groq-sdk'
+import { geminiText } from '@/lib/gemini'
 
-const SYSTEM_PROMPT = `Eres un analista senior especializado en Oil & Gas Argentina, con foco en Vaca Muerta y el sector energético patagónico.
+const SYSTEM_PROMPT = `Sos un analista senior especializado en Oil & Gas Argentina, con foco en Vaca Muerta y el sector energético patagónico.
 
 Tu tarea es generar un brief ejecutivo diario en español, conciso, accionable y orientado a decisiones de negocio del sector O&G.
 
@@ -115,20 +115,15 @@ Genera el brief con exactamente estas secciones en Markdown:
 ---
 *Generado por OBI | ${articles.length} artículos analizados${sourceIds ? ` | ${sourceIds.length} fuentes seleccionadas` : ''}*`
 
-    const groq = new Groq({ apiKey: process.env['GROQ_API_KEY'] })
+    const geminiKey = process.env['GEMINI_API_KEY']
+    if (!geminiKey) throw new Error('GEMINI_API_KEY no configurada')
 
-    const completion = await groq.chat.completions.create({
-      model:       'llama-3.3-70b-versatile',
-      max_tokens:  4096,
-      temperature: 0.3,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user',   content: userPrompt },
-      ],
-    })
-
-    const content = completion.choices[0]?.message?.content ?? ''
-    if (!content) throw new Error('No response from Groq')
+    const content = await geminiText(
+      SYSTEM_PROMPT + '\n\n' + userPrompt,
+      geminiKey,
+      { temperature: 0.3, maxTokens: 4096 }
+    )
+    if (!content) throw new Error('No response from Gemini')
 
     const { error: saveError } = await db
       .from('executive_briefs')
@@ -136,7 +131,7 @@ Genera el brief con exactamente estas secciones en Markdown:
         date:              today,
         brief_type:        'daily',
         content,
-        model_used:        'llama-3.3-70b-versatile',
+        model_used:        'gemini-2.0-flash-lite',
         articles_analyzed: articles.length,
         top_entities:      topEntities,
         key_signals:       (signals ?? []).map((s: any) => ({ type: s.type, title: s.title, severity: s.severity })),
